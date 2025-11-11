@@ -81,12 +81,19 @@ namespace Universo
             progressBar1.Value = 0;
             currentIteration = 0;
 
+            // Ajusta botões para evitar múltiplos inícios
+            btn_executa.Enabled = false;
+            btn_parar.Enabled = false;
+
             if (radioButton1.Checked)
             {
+                // Modo visual: habilita parar
+                btn_parar.Enabled = true;
                 simulationTimer.Start();
             }
             else if (radioButton2.Checked)
             {
+                // Modo rápido: não há timer, execução imediata
                 for (int i = 0; i < numInterac; i++)
                 {
                     U.InteragirCorpos(numTempoInterac);
@@ -94,6 +101,9 @@ namespace Universo
                 }
                 this.Refresh();
                 MessageBox.Show("Simulação concluída!");
+                // Reabilita botões
+                btn_executa.Enabled = true;
+                btn_parar.Enabled = false;
             }
         }
 
@@ -109,8 +119,22 @@ namespace Universo
             else
             {
                 simulationTimer.Stop();
+                btn_executa.Enabled = true;
+                btn_parar.Enabled = false;
                 MessageBox.Show("Simulação concluída!");
             }
+        }
+
+        private void btn_parar_Click(object sender, EventArgs e)
+        {
+            // Para a simulação em andamento (modo visual)
+            if (simulationTimer.Enabled)
+            {
+                simulationTimer.Stop();
+            }
+            // Ajusta estados dos botões
+            btn_executa.Enabled = true;
+            btn_parar.Enabled = false;
         }
 
         private void Form1_Paint(object sender, PaintEventArgs pe)

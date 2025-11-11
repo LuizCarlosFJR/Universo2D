@@ -46,6 +46,7 @@
             this.gbSimulacao = new System.Windows.Forms.GroupBox();
             this.label4 = new System.Windows.Forms.Label();
             this.btn_executa = new System.Windows.Forms.Button();
+            this.btn_parar = new System.Windows.Forms.Button();
             this.qtdInterac = new System.Windows.Forms.TextBox();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
             this.radioButton1 = new System.Windows.Forms.RadioButton();
@@ -235,6 +236,7 @@
             // 
             this.gbSimulacao.Controls.Add(this.label4);
             this.gbSimulacao.Controls.Add(this.btn_executa);
+            this.gbSimulacao.Controls.Add(this.btn_parar);
             this.gbSimulacao.Controls.Add(this.qtdInterac);
             this.gbSimulacao.Controls.Add(this.groupBox2);
             this.gbSimulacao.Controls.Add(this.label5);
@@ -258,13 +260,25 @@
             // btn_executa
             // 
             this.btn_executa.Font = new System.Drawing.Font("Microsoft Sans Serif", 8.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.btn_executa.Location = new System.Drawing.Point(262, 41);
+            this.btn_executa.Location = new System.Drawing.Point(230, 41);
             this.btn_executa.Name = "btn_executa";
-            this.btn_executa.Size = new System.Drawing.Size(100, 23);
+            this.btn_executa.Size = new System.Drawing.Size(70, 23);
             this.btn_executa.TabIndex = 9;
             this.btn_executa.Text = "INICIAR";
             this.btn_executa.UseVisualStyleBackColor = true;
             this.btn_executa.Click += new System.EventHandler(this.button1_Click);
+            // 
+            // btn_parar
+            // 
+            this.btn_parar.Enabled = false;
+            this.btn_parar.Font = new System.Drawing.Font("Microsoft Sans Serif", 8.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btn_parar.Location = new System.Drawing.Point(306, 41);
+            this.btn_parar.Name = "btn_parar";
+            this.btn_parar.Size = new System.Drawing.Size(70, 23);
+            this.btn_parar.TabIndex = 24;
+            this.btn_parar.Text = "PARAR";
+            this.btn_parar.UseVisualStyleBackColor = true;
+            this.btn_parar.Click += new System.EventHandler(this.btn_parar_Click);
             // 
             // qtdInterac
             // 
@@ -475,6 +489,7 @@
         private System.Windows.Forms.Label label5;
         private System.Windows.Forms.TextBox qtdTempoInterac;
         private System.Windows.Forms.Button btn_executa;
+        private System.Windows.Forms.Button btn_parar;
         private System.Windows.Forms.Button btn_grava;
         private System.Windows.Forms.Button btn_carrega;
         private System.Windows.Forms.Button btn_grava_ini;
