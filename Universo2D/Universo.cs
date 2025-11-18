@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Threading.Tasks;
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
 
 namespace Universo
 {
@@ -9,6 +10,8 @@ namespace Universo
     {
         public ObservableCollection<Corpos> ListaCorp { get; private set; }
         public static readonly double G = 6.67408e-11; // Constante gravitacional no SI
+
+        private static readonly Random SharedRandom = new Random();
 
         public Universo()
         {
@@ -29,25 +32,24 @@ namespace Universo
             double distancia = Dist(c1, c2);
             if (distancia == 0) return;
 
-            double forca = (G * c1.Massa * c2.Massa) / (distancia * distancia);
+            // Softening para evitar forças infinitas em distâncias muito pequenas
+            double softening = 1e-6;
+            double invDist = 1.0 / Math.Max(distancia, softening);
+
+            double forca = (G * c1.Massa * c2.Massa) * (invDist * invDist);
 
             double dx = c2.PosX - c1.PosX;
             double dy = c2.PosY - c1.PosY;
 
-            double forcaX = forca * dx / distancia;
-            double forcaY = forca * dy / distancia;
+            double forcaX = forca * dx * invDist;
+            double forcaY = forca * dy * invDist;
 
-            lock (c1)
-            {
-                c1.ForcaX += forcaX;
-                c1.ForcaY += forcaY;
-            }
+            // Atualiza forças (não é executado em paralelo neste método)
+            c1.ForcaX += forcaX;
+            c1.ForcaY += forcaY;
 
-            lock (c2)
-            {
-                c2.ForcaX -= forcaX;
-                c2.ForcaY -= forcaY;
-            }
+            c2.ForcaX -= forcaX;
+            c2.ForcaY -= forcaY;
         }
 
         private void Colisao(Corpos c1, Corpos c2)
@@ -58,7 +60,8 @@ namespace Universo
             Corpos menor = c1.Massa < c2.Massa ? c1 : c2;
 
             double massaTotal = maior.Massa + menor.Massa;
-            
+            if (massaTotal <= 0) return;
+
             // Conservação da quantidade de movimento (Q = mv)
             double pX = maior.VelX * maior.Massa + menor.VelX * menor.Massa;
             double pY = maior.VelY * maior.Massa + menor.VelY * menor.Massa;
@@ -77,37 +80,57 @@ namespace Universo
         public void CarregarCorpos(int numCorpos, int xIni, int xFim, int yIni, int yFim, int masIni, int masFim)
         {
             ListaCorp.Clear();
-            Random rd = new Random();
 
-            for (int i = 0; i < numCorpos; i++)
+            // Validação mínima de ranges
+            if (numCorpos <= 0) return;
+            if (xFim <= xIni) xFim = xIni + 1;
+            if (yFim <= yIni) yFim = yIni + 1;
+            if (masFim <= masIni) masFim = masIni + 1;
+
+            lock (SharedRandom)
             {
-                string nome = "cp" + i;
-                double massa = rd.Next(masIni, masFim);
-                double densidade = rd.Next(1000, 20000); // Densidades mais realistas (ex: água a rochas/metais)
-                double posX = rd.Next(xIni, xFim);
-                double posY = rd.Next(yIni, yFim);
-                double velX = (rd.NextDouble() - 0.5) * 2; // Velocidades iniciais menores
-                double velY = (rd.NextDouble() - 0.5) * 2;
+                for (int i = 0; i < numCorpos; i++)
+                {
+                    string nome = "cp" + i;
+                    double massa = SharedRandom.Next(masIni, masFim);
+                    double densidade = SharedRandom.Next(1000, 20000); // Densidades mais realistas (ex: água a rochas/metais)
+                    double posX = SharedRandom.Next(xIni, xFim);
+                    double posY = SharedRandom.Next(yIni, yFim);
+                    double velX = (SharedRandom.NextDouble() - 0.5) * 2; // Velocidades iniciais menores
+                    double velY = (SharedRandom.NextDouble() - 0.5) * 2;
 
-                ListaCorp.Add(new Corpos(nome, massa, posX, posY, velX, velY, densidade));
+                    ListaCorp.Add(new Corpos(nome, massa, posX, posY, velX, velY, densidade));
+                }
             }
         }
 
         public void InteragirCorpos(int qtdSegundos)
         {
-            ZerarForcas();
+            if (qtdSegundos <= 0) return;
 
-            // Cálculo de forças
-            for (int i = 0; i < QtdCorp; i++)
+            // Trabalhar com snapshot para evitar problemas de concorrência com Parallel.ForEach
+            List<Corpos> snapshot = ListaCorp.ToList();
+
+            // Zerar forças
+            foreach (var corpo in snapshot)
             {
-                for (int j = i + 1; j < QtdCorp; j++)
+                corpo.ForcaX = 0;
+                corpo.ForcaY = 0;
+            }
+
+            int n = snapshot.Count;
+
+            // Cálculo de forças (sequencial)
+            for (int i = 0; i < n; i++)
+            {
+                for (int j = i + 1; j < n; j++)
                 {
-                    ForcaG(ListaCorp[i], ListaCorp[j]);
+                    ForcaG(snapshot[i], snapshot[j]);
                 }
             }
 
-            // Atualização de posição e velocidade
-            Parallel.ForEach(ListaCorp, corpo =>
+            // Atualização de posição e velocidade (paralelo seguro sobre snapshot)
+            Parallel.ForEach(snapshot, corpo =>
             {
                 if (corpo.Valido)
                 {
@@ -115,12 +138,12 @@ namespace Universo
                 }
             });
 
-            // Tratamento de colisões
-            for (int i = 0; i < QtdCorp; i++)
+            // Tratamento de colisões (usar snapshot para determinar pares, mas as mudanças aplicam-se aos objetos originais)
+            for (int i = 0; i < n; i++)
             {
-                for (int j = i + 1; j < QtdCorp; j++)
+                for (int j = i + 1; j < n; j++)
                 {
-                    Colisao(ListaCorp[i], ListaCorp[j]);
+                    Colisao(snapshot[i], snapshot[j]);
                 }
             }
 
@@ -156,12 +179,13 @@ namespace Universo
             double acelY = c1.ForcaY / c1.Massa;
 
             // s = s0 + v0t + (at^2)/2
-            c1.PosX += c1.VelX * qtdSegundos + (acelX * Math.Pow(qtdSegundos, 2)) / 2;
-            c1.PosY += c1.VelY * qtdSegundos + (acelY * Math.Pow(qtdSegundos, 2)) / 2;
-            
+            double t = qtdSegundos;
+            c1.PosX += c1.VelX * t + (acelX * t * t) / 2.0;
+            c1.PosY += c1.VelY * t + (acelY * t * t) / 2.0;
+
             // v = v0 + at
-            c1.VelX += acelX * qtdSegundos;
-            c1.VelY += acelY * qtdSegundos;
+            c1.VelX += acelX * t;
+            c1.VelY += acelY * t;
         }
 
         private void OrganizarUniverso()

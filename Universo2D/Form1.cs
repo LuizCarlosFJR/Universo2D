@@ -84,6 +84,31 @@ namespace Universo
                 return;
             }
 
+            if (numInterac <= 0)
+            {
+                MessageBox.Show("O número de interações deve ser maior que zero.", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (numTempoInterac <= 0)
+            {
+                MessageBox.Show("O tempo por interação deve ser maior que zero.", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Limites práticos para evitar estouro ou longas execuções acidentais
+            if (numInterac > 1000000)
+            {
+                var res = MessageBox.Show("Número de iterações muito alto (mais de 1.000.000). Deseja continuar?", "Confirmação", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (res != DialogResult.Yes) return;
+            }
+
+            if (numTempoInterac > 3600)
+            {
+                var res2 = MessageBox.Show("Tempo por iteração muito alto (mais de 3600s). Deseja continuar?", "Confirmação", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (res2 != DialogResult.Yes) return;
+            }
+
             if (U.QtdCorp == 0)
             {
                 MessageBox.Show("Nenhum universo carregado para simular.", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
