@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 using Microsoft.VisualBasic;
+using System.Collections.Generic;
 
 
 namespace Universo
@@ -20,6 +21,15 @@ namespace Universo
         private readonly GravadorTexto gravadorTexto = new GravadorTexto();
         private readonly GravadorMySQL gravadorMySQL = new GravadorMySQL();
 
+        // MySQL runtime control
+        private bool saveToMySQL = false;
+        private int currentDBSimId = -1;
+
+        // Replay (load all iterations) support
+        private Timer replayTimer;
+        private List<int> replayIterations;
+        private int replayIndex;
+
 
         public Form1()
         {
@@ -32,6 +42,9 @@ namespace Universo
                 Interval = 20
             };
             simulationTimer.Tick += SimulationTimer_Tick;
+
+            replayTimer = new Timer { Interval = 200 };
+            replayTimer.Tick += ReplayTimer_Tick;
 
             // Define o gravador inicial (Texto como padrão)
             gravadorAtivo = gravadorTexto;
@@ -85,6 +98,32 @@ namespace Universo
             btn_executa.Enabled = false;
             btn_parar.Enabled = false;
 
+            // Se gravador ativo é MySQL, perguntar se quer gravar cada iteração
+            saveToMySQL = false;
+            currentDBSimId = -1;
+            if (gravadorAtivo is GravadorMySQL)
+            {
+                var resp = MessageBox.Show("Deseja gravar cada iteração desta simulação no MySQL?", "Gravar Iterações", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (resp == DialogResult.Yes)
+                {
+                    string nomeSimulacao = Interaction.InputBox("Digite um NOME para a simulação (no MySQL):", "Salvar no MySQL", "Simulacao Gravada");
+                    if (!string.IsNullOrWhiteSpace(nomeSimulacao))
+                    {
+                        // Cria registro da simulação e salva iteração 0 (estado atual)
+                        int idGerado = gravadorMySQL.SalvarSimulacao(U, nomeSimulacao, numInterac, numTempoInterac);
+                        if (idGerado > 0)
+                        {
+                            currentDBSimId = idGerado;
+                            saveToMySQL = true;
+                        }
+                        else
+                        {
+                            MessageBox.Show("Falha ao criar registro da simulação no MySQL. Gravação de iterações será desativada.", "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                    }
+                }
+            }
+
             if (radioButton1.Checked)
             {
                 // Modo visual: habilita parar
@@ -97,13 +136,23 @@ namespace Universo
                 for (int i = 0; i < numInterac; i++)
                 {
                     U.InteragirCorpos(numTempoInterac);
-                    progressBar1.Value = i + 1;
+                    currentIteration = i + 1;
+                    progressBar1.Value = currentIteration;
+                    // Salva iteração no MySQL, se ativado
+                    if (saveToMySQL && currentDBSimId > 0)
+                    {
+                        gravadorMySQL.SalvarIteracao(currentDBSimId, currentIteration, U);
+                    }
                 }
                 this.Refresh();
                 MessageBox.Show("Simulação concluída!");
                 // Reabilita botões
                 btn_executa.Enabled = true;
                 btn_parar.Enabled = false;
+
+                // reset save flag
+                saveToMySQL = false;
+                currentDBSimId = -1;
             }
         }
 
@@ -112,9 +161,14 @@ namespace Universo
             if (currentIteration < numInterac)
             {
                 U.InteragirCorpos(numTempoInterac);
-                progressBar1.Value = currentIteration + 1;
-                this.Refresh();
                 currentIteration++;
+                progressBar1.Value = currentIteration;
+                // Salva iteração no MySQL, se ativado
+                if (saveToMySQL && currentDBSimId > 0)
+                {
+                    gravadorMySQL.SalvarIteracao(currentDBSimId, currentIteration, U);
+                }
+                this.Refresh();
             }
             else
             {
@@ -122,6 +176,10 @@ namespace Universo
                 btn_executa.Enabled = true;
                 btn_parar.Enabled = false;
                 MessageBox.Show("Simulação concluída!");
+
+                // reset save flag
+                saveToMySQL = false;
+                currentDBSimId = -1;
             }
         }
 
@@ -132,9 +190,41 @@ namespace Universo
             {
                 simulationTimer.Stop();
             }
+            if (replayTimer.Enabled)
+            {
+                replayTimer.Stop();
+            }
             // Ajusta estados dos botões
             btn_executa.Enabled = true;
             btn_parar.Enabled = false;
+
+            // If stopping manual save session, keep the DB record but disable further per-iteration saves
+            saveToMySQL = false;
+        }
+
+        private void ReplayTimer_Tick(object sender, EventArgs e)
+        {
+            if (replayIterations == null) return;
+            if (replayIndex < replayIterations.Count)
+            {
+                int iterNum = replayIterations[replayIndex];
+                var loaded = gravadorMySQL.CarregarIteracao(currentDBSimId, iterNum);
+                if (loaded != null)
+                {
+                    U = loaded;
+                    qtdCorposAtual.Text = U.QtdCorp.ToString();
+                    progressBar1.Value = Math.Min(progressBar1.Maximum, iterNum);
+                    this.Refresh();
+                }
+                replayIndex++;
+            }
+            else
+            {
+                replayTimer.Stop();
+                MessageBox.Show("Replay concluído.");
+                btn_executa.Enabled = true;
+                btn_parar.Enabled = false;
+            }
         }
 
         private void Form1_Paint(object sender, PaintEventArgs pe)
@@ -324,10 +414,17 @@ namespace Universo
                 }
             }
 
-            Universo universoCarregado = gravadorAtivo.CarregarUniverso(inputCaminhoOuId, out int numInteracOut, out int numTempoInteracOut);
-
-            if (universoCarregado != null)
+            if (gravadorAtivo is GravadorMySQL)
             {
+                if (!int.TryParse(inputCaminhoOuId, out int idSim)) return;
+                // Pergunta se o usuário deseja carregar todas as iterações para replay
+                var resp = MessageBox.Show("Deseja carregar TODAS as iterações para replay (sim) ou apenas o estado inicial (não)?", "Carregar iterações", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (resp == DialogResult.Cancel) return;
+
+                // Carrega metadados + estado inicial
+                Universo universoCarregado = gravadorMySQL.CarregarSimulacao(idSim, out int numInteracOut, out int numTempoInteracOut);
+                if (universoCarregado == null) return;
+
                 U = universoCarregado;
                 Uinicial.CopiarUniverso(U);
 
@@ -336,8 +433,45 @@ namespace Universo
                 qtdTempoInterac.Text = numTempoInteracOut.ToString();
                 progressBar1.Value = 0;
                 progressBar1.Maximum = numInteracOut > 0 ? numInteracOut : 100;
-
                 this.Refresh();
+
+                if (resp == DialogResult.Yes)
+                {
+                    // Preparar replay: listar iterações e iniciar timer
+                    var iters = gravadorMySQL.ListarIteracoes(idSim);
+                    if (iters == null || iters.Count == 0)
+                    {
+                        MessageBox.Show("Nenhuma iteração encontrada para esta simulação.", "Aviso", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    currentDBSimId = idSim;
+                    replayIterations = iters;
+                    replayIndex = 0;
+                    // Ajusta intervalo do replay (usar tempo por interação em ms se disponível)
+                    int intervalMs = Math.Max(50, numTempoInteracOut * 10); // heurística
+                    replayTimer.Interval = intervalMs;
+                    btn_parar.Enabled = true;
+                    btn_executa.Enabled = false;
+                    replayTimer.Start();
+                }
+            }
+            else
+            {
+                Universo universoCarregado = gravadorAtivo.CarregarUniverso(inputCaminhoOuId, out int numInteracOut, out int numTempoInteracOut);
+
+                if (universoCarregado != null)
+                {
+                    U = universoCarregado;
+                    Uinicial.CopiarUniverso(U);
+
+                    qtdCorpos.Text = U.QtdCorp.ToString();
+                    qtdInterac.Text = numInteracOut.ToString();
+                    qtdTempoInterac.Text = numTempoInteracOut.ToString();
+                    progressBar1.Value = 0;
+                    progressBar1.Maximum = numInteracOut > 0 ? numInteracOut : 100;
+
+                    this.Refresh();
+                }
             }
         }
 
